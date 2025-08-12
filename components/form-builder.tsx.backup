@@ -1,0 +1,141 @@
+"use client"
+
+import { useState } from "react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { FormGenerator } from "@/components/form-generator"
+import { FormEditorSimple } from "@/components/form-editor-simple"
+import { FormSubmissionHandler } from "@/components/form-submission-handler"
+import { TemplateGallery } from "@/components/template-gallery"
+import { JsonEditor } from "@/components/json-editor"
+import { DocumentParser } from "@/components/document-parser"
+import { HospitalSettings } from "@/components/hospital-settings"
+import { Toaster } from "@/components/ui/toaster"
+import { ExactFormPreview } from "@/components/exact-form-preview"
+import type { FormField, FormLayout } from "@/types/form"
+
+export function FormBuilder() {
+  const [activeTab, setActiveTab] = useState("document") // Set default to document tab
+  const [formTitle, setFormTitle] = useState("New Form")
+  const [formFields, setFormFields] = useState<FormField[]>([])
+  const [formLayout, setFormLayout] = useState<FormLayout | undefined>(undefined)
+  const [pageImages, setPageImages] = useState<string[] | undefined>(undefined)
+  const [hospitalSettings, setHospitalSettings] = useState({
+    name: "Dr. Martin Jameson",
+    qualification: "QUALIFICATION",
+    logoUrl:
+      "https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Screenshot%202025-04-09%20110801-h7B8bd8YiRf0RULJ7MhfPaLyoQ8O4F.png", // Using the provided logo URL
+    headerStyle: "modern" as const,
+    primaryColor: "#0ea5e9",
+  })
+
+  const handleFormGenerated = (title: string, fields: FormField[]) => {
+    setFormTitle(title)
+    setFormFields(fields)
+    setActiveTab("edit")
+  }
+
+  const handleTemplateSelected = (title: string, fields: FormField[]) => {
+    setFormTitle(title)
+    setFormFields(fields)
+    setActiveTab("edit")
+  }
+
+  const handleJsonUpdate = (title: string, fields: FormField[]) => {
+    setFormTitle(title)
+    setFormFields(fields)
+  }
+
+  const handleHospitalSettingsChange = (settings: {
+    name: string
+    qualification: string
+    logoUrl: string
+    headerStyle: "standard" | "modern" | "classic"
+    primaryColor: string
+  }) => {
+    setHospitalSettings(settings)
+  }
+
+  const handleFormExtracted = (title: string, fields: FormField[], layout?: FormLayout, imageUrl?: string) => {
+    setFormTitle(title)
+    setFormFields(fields)
+    setFormLayout(layout)
+
+    // Handle page images if they exist in the layout
+    if (layout?.backgroundImage) {
+      setPageImages(layout.backgroundImage ? [layout.backgroundImage] : undefined)
+    }
+
+    // If we have layout information, switch to the exact preview tab
+    if (layout) {
+      setActiveTab("exact-preview")
+    } else {
+      setActiveTab("edit")
+    }
+  }
+
+  return (
+    <>
+      <div className="bg-white rounded-lg shadow-lg overflow-hidden">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid grid-cols-8 w-full">
+            <TabsTrigger value="generate">Generate</TabsTrigger>
+            <TabsTrigger value="document">Document</TabsTrigger>
+            <TabsTrigger value="templates">Templates</TabsTrigger>
+            <TabsTrigger value="edit">Edit</TabsTrigger>
+            <TabsTrigger value="preview">Preview</TabsTrigger>
+            <TabsTrigger value="exact-preview" disabled={!formLayout}>
+              Exact Preview
+            </TabsTrigger>
+            <TabsTrigger value="json">JSON</TabsTrigger>
+            <TabsTrigger value="settings">Settings</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="generate" className="p-6">
+            <FormGenerator onFormGenerated={handleFormGenerated} />
+          </TabsContent>
+
+          <TabsContent value="document" className="p-6">
+            <DocumentParser onFormExtracted={handleFormExtracted} />
+          </TabsContent>
+
+          <TabsContent value="templates" className="p-6">
+            <TemplateGallery onTemplateSelected={handleTemplateSelected} />
+          </TabsContent>
+
+          <TabsContent value="edit" className="p-6">
+            <FormEditorSimple
+              formTitle={formTitle}
+              formFields={formFields}
+              onFormTitleChange={setFormTitle}
+              onFormFieldsChange={setFormFields}
+            />
+          </TabsContent>
+
+          <TabsContent value="preview" className="p-6">
+            <FormSubmissionHandler formTitle={formTitle} formFields={formFields} hospitalSettings={hospitalSettings} />
+          </TabsContent>
+
+          <TabsContent value="exact-preview" className="p-6">
+            {formLayout && (
+              <ExactFormPreview
+                formTitle={formTitle}
+                formFields={formFields}
+                formLayout={formLayout}
+                pageImages={pageImages}
+              />
+            )}
+          </TabsContent>
+
+          <TabsContent value="json" className="p-6">
+            <JsonEditor formTitle={formTitle} formFields={formFields} onUpdate={handleJsonUpdate} />
+          </TabsContent>
+
+          <TabsContent value="settings" className="p-6">
+            <HospitalSettings onSettingsChange={handleHospitalSettingsChange} settings={hospitalSettings} />
+          </TabsContent>
+        </Tabs>
+      </div>
+      <Toaster />
+    </>
+  )
+}

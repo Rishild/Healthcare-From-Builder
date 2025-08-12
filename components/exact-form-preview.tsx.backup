@@ -1,0 +1,714 @@
+"use client"
+
+import type React from "react"
+import { useState, useRef, useEffect } from "react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { Printer, ChevronLeft, ChevronRight } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import type { FormField, FormLayout } from "@/types/form"
+
+interface ExactFormPreviewProps {
+  formTitle: string
+  formFields: FormField[]
+  formLayout?: FormLayout
+  pageImages?: string[]
+  onSubmit?: (data: Record<string, any>) => void
+}
+
+export function ExactFormPreview({ formTitle, formFields, formLayout, pageImages, onSubmit }: ExactFormPreviewProps) {
+  const [formData, setFormData] = useState<Record<string, any>>({})
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [scale, setScale] = useState(1)
+  const formRef = useRef<HTMLFormElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const { toast } = useToast()
+
+  // Set up total pages and current page from layout
+  useEffect(() => {
+    if (formLayout?.pages) {
+      setTotalPages(formLayout.pages)
+    } else if (pageImages?.length) {
+      setTotalPages(pageImages.length)
+    }
+
+    if (formLayout?.currentPage) {
+      setCurrentPage(formLayout.currentPage)
+    }
+  }, [formLayout, pageImages])
+
+  // Calculate scale to fit the form in the container
+  useEffect(() => {
+    const updateScale = () => {
+      if (containerRef.current && formLayout) {
+        const containerWidth = containerRef.current.clientWidth
+        const formWidth = formLayout.pageSize.width
+
+        // Calculate scale to fit the form width in the container with some padding
+        const newScale = Math.min(1, (containerWidth - 40) / formWidth)
+        setScale(newScale)
+      }
+    }
+
+    updateScale()
+    window.addEventListener("resize", updateScale)
+    return () => window.removeEventListener("resize", updateScale)
+  }, [formLayout])
+
+  const handleInputChange = (fieldId: string, value: any) => {
+    setFormData((prev) => ({
+      ...prev,
+      [fieldId]: value,
+    }))
+
+    // Clear validation error for this field if it exists
+    if (validationErrors[fieldId]) {
+      setValidationErrors((prev) => {
+        const newErrors = { ...prev }
+        delete newErrors[fieldId]
+        return newErrors
+      })
+    }
+  }
+
+  const validateForm = () => {
+    const errors: Record<string, string> = {}
+    let hasShownToast = false
+
+    formFields.forEach((field) => {
+      if (field.required) {
+        const value = formData[field.id]
+
+        if (value === undefined || value === null || value === "") {
+          errors[field.id] = "This field is required"
+
+          // Show toast for the first error only
+          if (!hasShownToast) {
+            toast({
+              title: "Required Field Missing",
+              description: `${field.label} is required`,
+              variant: "destructive",
+            })
+            hasShownToast = true
+          }
+        } else if (Array.isArray(value) && value.length === 0) {
+          errors[field.id] = "Please select at least one option"
+
+          // Show toast for the first error only
+          if (!hasShownToast) {
+            toast({
+              title: "Selection Required",
+              description: `Please select at least one option for ${field.label}`,
+              variant: "destructive",
+            })
+            hasShownToast = true
+          }
+        }
+      }
+
+      // Add type-specific validation
+      if (field.type === "email" && formData[field.id]) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+        if (!emailRegex.test(formData[field.id])) {
+          errors[field.id] = "Please enter a valid email address"
+
+          // Show toast for the first error only
+          if (!hasShownToast) {
+            toast({
+              title: "Invalid Email Format",
+              description: "Please enter a valid email address",
+              variant: "destructive",
+            })
+            hasShownToast = true
+          }
+        }
+      }
+
+      if (field.type === "phone" && formData[field.id]) {
+        const phoneRegex = /^\+?[0-9\s\-()]{8,20}$/
+        if (!phoneRegex.test(formData[field.id])) {
+          errors[field.id] = "Please enter a valid phone number"
+
+          // Show toast for the first error only
+          if (!hasShownToast) {
+            toast({
+              title: "Invalid Phone Number",
+              description: "Please enter a valid phone number",
+              variant: "destructive",
+            })
+            hasShownToast = true
+          }
+        }
+      }
+    })
+
+    setValidationErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (validateForm()) {
+      if (onSubmit) {
+        onSubmit(formData)
+      }
+      toast({
+        title: "Form Submitted",
+        description: "Your form has been successfully submitted.",
+        variant: "success",
+      })
+    }
+  }
+
+  const handlePrint = () => {
+    if (!formRef.current) return
+
+    const printWindow = window.open("", "_blank")
+    if (!printWindow) {
+      alert("Please allow pop-ups to print the form")
+      return
+    }
+
+    // Get the current styles from the page
+    const styles = Array.from(document.styleSheets)
+      .map((styleSheet) => {
+        try {
+          return Array.from(styleSheet.cssRules)
+            .map((rule) => rule.cssText)
+            .join("\n")
+        } catch (e) {
+          // Likely a CORS issue with external stylesheets
+          return ""
+        }
+      })
+      .filter(Boolean)
+      .join("\n")
+
+    // Create a clone of the form to manipulate for printing
+    const formClone = formRef.current.cloneNode(true) as HTMLFormElement
+
+    // Remove the submit button and navigation controls from the print view
+    const submitButton = formClone.querySelector('button[type="submit"]')
+    if (submitButton && submitButton.parentNode) {
+      submitButton.parentNode.removeChild(submitButton)
+    }
+
+    const navControls = formClone.querySelectorAll(".page-navigation")
+    navControls.forEach((control) => {
+      if (control.parentNode) {
+        control.parentNode.removeChild(control)
+      }
+    })
+
+    // Add custom print styles
+    const printStyles = `
+      @media print {
+        @page {
+          size: ${formLayout?.orientation === "landscape" ? "landscape" : "portrait"};
+          margin: 0;
+        }
+        body { 
+          font-family: system-ui, sans-serif;
+          color: #333;
+          margin: 0;
+          padding: 0;
+        }
+        .form-container { 
+          position: relative;
+          width: ${formLayout?.pageSize.width || 850}px;
+          height: ${formLayout?.pageSize.height || 1100}px;
+          margin: 0;
+          padding: 0;
+          background-color: white;
+          background-image: url('${pageImages?.[currentPage - 1] || ""}');
+          background-size: contain;
+          background-repeat: no-repeat;
+          background-position: center;
+        }
+        .form-field {
+          position: absolute;
+          margin: 0;
+          padding: 0;
+        }
+        .form-field label {
+          display: none;
+        }
+        .form-field input, 
+        .form-field textarea, 
+        .form-field select {
+          background-color: transparent;
+          border: none;
+          border-bottom: 1px solid #999;
+          padding: 0;
+          font-family: system-ui, sans-serif;
+          font-size: 14px;
+        }
+        .form-field-checkbox,
+        .form-field-radio {
+          display: flex;
+          flex-direction: row;
+          align-items: center;
+        }
+        .form-field-checkbox label,
+        .form-field-radio label {
+          display: inline-block;
+          margin-left: 5px;
+          font-size: 14px;
+        }
+        .print-controls { 
+          display: none; 
+        }
+      }
+    `
+
+    // Create a base64 version of the background image to ensure it prints correctly
+    const createBase64Image = () => {
+      return new Promise<void>((resolve) => {
+        if (pageImages && pageImages[currentPage - 1]) {
+          const img = new Image()
+          img.crossOrigin = "anonymous"
+          img.onload = () => {
+            const canvas = document.createElement("canvas")
+            canvas.width = img.width
+            canvas.height = img.height
+            const ctx = canvas.getContext("2d")
+            if (ctx) {
+              ctx.drawImage(img, 0, 0)
+              const dataURL = canvas.toDataURL("image/png")
+              printWindow.document.write(`
+                <style>
+                  .form-container {
+                    background-image: url('${dataURL}') !important;
+                  }
+                </style>
+              `)
+            }
+            resolve()
+          }
+          img.onerror = () => {
+            console.error("Error loading background image")
+            resolve()
+          }
+          img.src = pageImages[currentPage - 1]
+        } else {
+          resolve()
+        }
+      })
+    }
+
+    // Use the base64 image function and then write to the print window
+    createBase64Image().then(() => {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>${formTitle} - Page ${currentPage} - Print Form</title>
+            <style>${styles}\n${printStyles}</style>
+          </head>
+          <body>
+            <div class="form-container">
+              ${formClone.innerHTML}
+            </div>
+            <div class="print-controls" style="margin-top: 20px;">
+              <button onclick="window.print(); setTimeout(() => window.close(), 500);" style="padding: 8px 16px; background: #0ea5e9; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                Print Form
+              </button>
+            </div>
+          </body>
+        </html>
+      `)
+
+      printWindow.document.close()
+    })
+  }
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+
+  const handlePrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+
+  // Get the current page background image
+  const currentBackgroundImage =
+    pageImages && pageImages.length >= currentPage ? pageImages[currentPage - 1] : formLayout?.backgroundImage || ""
+
+  // Filter fields for the current page
+  const currentPageFields = formFields.filter((field) => !field.metadata?.page || field.metadata.page === currentPage)
+
+  return (
+    <div className="space-y-6" ref={containerRef}>
+      <div className="flex justify-between items-center">
+        <h2 className="text-xl font-semibold">
+          {formTitle} - Page {currentPage} of {totalPages}
+        </h2>
+        <div className="flex items-center gap-2">
+          <div className="page-navigation flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePrevPage}
+              disabled={currentPage <= 1}
+              className="flex items-center gap-1"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={currentPage >= totalPages}
+              className="flex items-center gap-1"
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button variant="outline" size="sm" onClick={handlePrint} className="flex items-center gap-1">
+            <Printer className="h-4 w-4" />
+            Print Form
+          </Button>
+        </div>
+      </div>
+
+      <div
+        className="relative border rounded-md overflow-hidden mx-auto"
+        style={{
+          width: formLayout ? `${formLayout.pageSize.width * scale}px` : "100%",
+          height: formLayout ? `${formLayout.pageSize.height * scale}px` : "1100px",
+          maxHeight: "80vh",
+          backgroundImage: currentBackgroundImage ? `url(${currentBackgroundImage})` : "none",
+          backgroundSize: "contain",
+          backgroundRepeat: "no-repeat",
+          backgroundPosition: "center",
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+        }}
+      >
+        <form ref={formRef} onSubmit={handleSubmit} className="relative w-full h-full">
+          {/* Render form sections for current page */}
+          {formLayout?.sections
+            .filter((section) => section.id.includes(`page${currentPage}`) || !section.id.includes("page"))
+            .map((section) => {
+              if (section.type === "header" || section.type === "footer") {
+                return (
+                  <div
+                    key={section.id}
+                    className="absolute"
+                    style={{
+                      top: `${section.position.y}px`,
+                      left: `${section.position.x}px`,
+                      width: `${section.size.width}px`,
+                      height: `${section.size.height}px`,
+                      ...section.style,
+                    }}
+                  >
+                    {section.content}
+                  </div>
+                )
+              }
+              return null
+            })}
+
+          {/* Render form fields for current page */}
+          {currentPageFields.map((field) => {
+            const position = field.metadata?.position || { x: 0, y: 0 }
+            const size = field.metadata?.size || { width: 200, height: 30 }
+            const borderStyle = field.metadata?.borderStyle || "underline"
+            const fontSize = field.metadata?.fontSize || 12
+            const fontFamily = field.metadata?.fontFamily || "Arial"
+            const alignment = field.metadata?.alignment || "left"
+
+            // Create field-specific styles based on metadata
+            const fieldStyle: React.CSSProperties = {
+              fontFamily,
+              fontSize: `${fontSize}px`,
+              textAlign: alignment as any,
+            }
+
+            // Create border style based on the original form
+            const borderStyles: React.CSSProperties = {
+              borderBottom: borderStyle === "underline" ? "1px solid #999" : "none",
+              border: borderStyle === "box" ? "1px solid #999" : "",
+              borderRadius: borderStyle === "circle" ? "50%" : "",
+            }
+
+            return (
+              <div
+                key={field.id}
+                className="form-field absolute"
+                style={{
+                  top: `${position.y}px`,
+                  left: `${position.x}px`,
+                  width: `${size.width}px`,
+                  height: `${size.height}px`,
+                }}
+              >
+                <Label htmlFor={field.id} className="sr-only">
+                  {field.label}
+                  {field.required && <span className="text-destructive ml-1">*</span>}
+                </Label>
+
+                {field.type === "text" && (
+                  <Input
+                    id={field.id}
+                    placeholder=""
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "textarea" && (
+                  <Textarea
+                    id={field.id}
+                    placeholder=""
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    rows={field.rows || 3}
+                    className={`w-full h-full resize-none ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "number" && (
+                  <Input
+                    id={field.id}
+                    type="number"
+                    placeholder=""
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "email" && (
+                  <Input
+                    id={field.id}
+                    type="email"
+                    placeholder=""
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "phone" && (
+                  <Input
+                    id={field.id}
+                    type="tel"
+                    placeholder=""
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "date" && (
+                  <Input
+                    id={field.id}
+                    type="date"
+                    value={formData[field.id] || ""}
+                    onChange={(e) => handleInputChange(field.id, e.target.value)}
+                    required={field.required}
+                    className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                    style={{ ...fieldStyle, ...borderStyles }}
+                  />
+                )}
+
+                {field.type === "select" && (
+                  <Select
+                    value={formData[field.id] || ""}
+                    onValueChange={(value) => handleInputChange(field.id, value)}
+                  >
+                    <SelectTrigger
+                      className={`w-full h-full ${validationErrors[field.id] ? "border-destructive" : "border-transparent bg-transparent"}`}
+                      style={{ ...fieldStyle, ...borderStyles }}
+                    >
+                      <SelectValue placeholder="" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(field.options || []).map((option, index) => (
+                        <SelectItem key={index} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                {field.type === "radio" && (
+                  <RadioGroup
+                    value={formData[field.id] || ""}
+                    onValueChange={(value) => handleInputChange(field.id, value)}
+                    className={`w-full h-full form-field-radio ${validationErrors[field.id] ? "border-destructive" : ""}`}
+                  >
+                    {(field.options || []).map((option, index) => {
+                      // Use option positions if available
+                      const optionPosition = field.metadata?.optionPositions?.[index] || {
+                        x: position.x + index * (size.width / (field.options?.length || 1)),
+                        y: position.y,
+                      }
+
+                      return (
+                        <div
+                          key={index}
+                          className="flex items-center absolute"
+                          style={{
+                            top: `${optionPosition.y - position.y}px`,
+                            left: `${optionPosition.x - position.x}px`,
+                          }}
+                        >
+                          <RadioGroupItem
+                            value={option}
+                            id={`${field.id}-${index}`}
+                            style={{
+                              width: `${fontSize}px`,
+                              height: `${fontSize}px`,
+                            }}
+                          />
+                          <Label
+                            htmlFor={`${field.id}-${index}`}
+                            style={{
+                              ...fieldStyle,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            {option}
+                          </Label>
+                        </div>
+                      )
+                    })}
+                  </RadioGroup>
+                )}
+
+                {field.type === "checkbox" && (
+                  <div
+                    className={`w-full h-full form-field-checkbox ${validationErrors[field.id] ? "border-destructive" : ""}`}
+                  >
+                    {(field.options || []).map((option, index) => {
+                      const checkboxId = `${field.id}-${index}`
+
+                      // Use option positions if available
+                      const optionPosition = field.metadata?.optionPositions?.[index] || {
+                        x: position.x,
+                        y: position.y + index * (size.height / (field.options?.length || 1)),
+                      }
+
+                      return (
+                        <div
+                          key={index}
+                          className="flex items-center absolute"
+                          style={{
+                            top: `${optionPosition.y - position.y}px`,
+                            left: `${optionPosition.x - position.x}px`,
+                          }}
+                        >
+                          <Checkbox
+                            id={checkboxId}
+                            checked={(formData[field.id] || []).includes(option)}
+                            onCheckedChange={(checked) => {
+                              const currentValues = formData[field.id] || []
+                              const newValues = checked
+                                ? [...currentValues, option]
+                                : currentValues.filter((val: string) => val !== option)
+                              handleInputChange(field.id, newValues)
+                            }}
+                            style={{
+                              width: `${fontSize}px`,
+                              height: `${fontSize}px`,
+                              borderRadius: borderStyle === "square" ? "0" : "",
+                            }}
+                          />
+                          <Label
+                            htmlFor={checkboxId}
+                            style={{
+                              ...fieldStyle,
+                              marginLeft: "4px",
+                            }}
+                          >
+                            {option}
+                          </Label>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {field.type === "toggle" && (
+                  <div className="flex items-center space-x-2 w-full h-full">
+                    <Switch
+                      id={field.id}
+                      checked={formData[field.id] || false}
+                      onCheckedChange={(checked) => handleInputChange(field.id, checked)}
+                      style={{
+                        borderRadius: borderStyle === "square" ? "0" : "",
+                      }}
+                    />
+                    <Label htmlFor={field.id} style={fieldStyle}>
+                      {field.label}
+                    </Label>
+                  </div>
+                )}
+
+                {field.type === "signature" && (
+                  <div
+                    className="border rounded-md h-full flex items-center justify-center bg-transparent"
+                    style={{
+                      ...borderStyles,
+                      borderBottom: borderStyle === "line" ? "1px solid #999" : borderStyles.borderBottom,
+                    }}
+                  >
+                    <p className="text-muted-foreground text-center text-xs">Signature here</p>
+                  </div>
+                )}
+
+                {validationErrors[field.id] && (
+                  <p className="text-xs text-destructive absolute bottom-0 left-0">{validationErrors[field.id]}</p>
+                )}
+              </div>
+            )
+          })}
+
+          <Button
+            type="submit"
+            className="absolute bottom-4 right-4"
+            style={{
+              transform: `scale(${1 / scale})`,
+              transformOrigin: "bottom right",
+            }}
+          >
+            Submit Form
+          </Button>
+        </form>
+      </div>
+    </div>
+  )
+}
